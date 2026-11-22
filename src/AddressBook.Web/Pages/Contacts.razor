@@ -1,0 +1,143 @@
+@page "/"
+@inject AddressBook.Web.Controllers.ContactsPageController Controller
+
+<PageTitle>US Address Book · Blazor PoC</PageTitle>
+<main class="container">
+    <header>
+        <div class="eyebrow">Blazor WebAssembly / ASP.NET Core / EF Core InMemory</div>
+        <h1>US Address Book</h1>
+        <p class="subtitle">Controller → Facade → Provider, demonstrated across frontend and backend layers.</p>
+    </header>
+
+    <section class="panel">
+        <h2>Contacts (@Controller.TotalCount)</h2>
+        <div class="search-bar">
+            <input aria-label="Search contacts" placeholder="Name, city, street or phone"
+                   @bind="_search" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+            <button @onclick="SearchAsync" disabled="@Controller.IsBusy">Search</button>
+            <button class="secondary" @onclick="ResetAsync" disabled="@Controller.IsBusy">Show all</button>
+        </div>
+        @if (Controller.Error is not null)
+        {
+            <p class="error" role="alert">@Controller.Error</p>
+        }
+        @if (Controller.IsBusy)
+        {
+            <p>Loading…</p>
+        }
+        else if (Controller.Contacts.Count == 0)
+        {
+            <p>No contacts match your search.</p>
+        }
+        else
+        {
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>Full Name</th><th>City</th><th>Address</th><th>Phone</th><th></th></tr></thead>
+                    <tbody>
+                    @foreach (var c in Controller.Contacts)
+                    {
+                        <tr @key="c.Id">
+                            <td><strong>@c.FirstName @c.LastName</strong></td>
+                            <td>@c.City</td>
+                            <td>@c.Street</td>
+                            <td>@c.Phone</td>
+                            <td><button class="link" @onclick="() => ShowDetailsAsync(c.Id)">Details</button></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (Controller.TotalCount > 0)
+        {
+            <nav class="pagination" aria-label="Page navigation">
+                <span class="pagination-summary">Showing @Controller.FirstItem–@Controller.LastItem of @Controller.TotalCount</span>
+                <div class="pagination-buttons">
+                    <button class="secondary" disabled="@(Controller.IsBusy || Controller.Page == 1)"
+                            @onclick="() => GoToPageAsync(Controller.Page - 1)">← Previous</button>
+                    @for (var pageNumber = 1; pageNumber <= Controller.TotalPages; pageNumber++)
+                    {
+                        var targetPage = pageNumber;
+                        <button class="@(targetPage == Controller.Page ? "active-page" : "secondary")"
+                                aria-current="@(targetPage == Controller.Page ? "page" : null)"
+                                disabled="@Controller.IsBusy"
+                                @onclick="() => GoToPageAsync(targetPage)">@targetPage</button>
+                    }
+                    <button class="secondary" disabled="@(Controller.IsBusy || Controller.Page >= Controller.TotalPages)"
+                            @onclick="() => GoToPageAsync(Controller.Page + 1)">Next →</button>
+                </div>
+            </nav>
+        }
+        @if (Controller.SelectedContact is { } selected)
+        {
+            <div class="details">
+                <div class="details-head"><h3>@selected.FirstName @selected.LastName</h3>
+                    <button class="secondary" @onclick="Controller.ClearSelection">Close</button></div>
+                <p><b>Address:</b> @selected.Street, @selected.City</p>
+                <p><b>Phone:</b> @selected.Phone</p>
+                <p><b>Email:</b> @selected.Email</p>
+                <small>ID: @selected.Id</small>
+            </div>
+        }
+    </section>
+
+    <section class="panel">
+        <h2>Add New Contact</h2>
+        <p class="hint">The POST request flows through all three layers and saves data to EF Core InMemory.</p>
+        <EditForm Model="_newContact" OnValidSubmit="CreateAsync" FormName="new-contact">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="form-grid">
+                <label>First Name <InputText @bind-Value="_newContact.FirstName" /></label>
+                <label>Last Name <InputText @bind-Value="_newContact.LastName" /></label>
+                <label>Street Address <InputText @bind-Value="_newContact.Street" /></label>
+                <label>City <InputText @bind-Value="_newContact.City" /></label>
+                <label>Phone <InputText @bind-Value="_newContact.Phone" /></label>
+                <label>Email (optional) <InputText @bind-Value="_newContact.Email" /></label>
+            </div>
+            <button type="submit" disabled="@Controller.IsBusy">Save Contact</button>
+            @if (_created) { <span class="success" role="status">Contact added successfully.</span> }
+        </EditForm>
+    </section>
+    <footer>PoC · Data resets when the API process restarts.</footer>
+</main>
+
+@code {
+    private string _search = string.Empty;
+    private CreateContactRequest _newContact = new();
+    private bool _created;
+
+    protected override async Task OnInitializedAsync() => await Controller.LoadAsync(null);
+
+    private async Task SearchAsync()
+    {
+        Controller.ClearSelection();
+        await Controller.LoadAsync(_search);
+    }
+
+    private async Task ResetAsync()
+    {
+        _search = string.Empty;
+        await SearchAsync();
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1 || page > Controller.TotalPages || Controller.IsBusy) return;
+        await Controller.LoadAsync(_search, page);
+    }
+
+    private async Task ShowDetailsAsync(Guid id) => await Controller.SelectAsync(id);
+
+    private async Task CreateAsync()
+    {
+        _created = await Controller.AddAsync(_newContact, _search);
+        if (_created) _newContact = new();
+    }
+}
